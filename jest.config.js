@@ -1,13 +1,16 @@
-module.exports = {
+const nextJest = require("next/jest");
+
+const createJestConfig = nextJest({
+  dir: "./",
+});
+
+const customJestConfig = {
   testEnvironment: "node",
   roots: ["<rootDir>/__tests__"],
   testMatch: ["**/*.test.js"],
-  transform: {
-    "^.+\\.jsx?$": "babel-jest",
-  },
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/$1",
   },
-
-  transformIgnorePatterns: ["/node_modules/(?!(@clerk|@prisma)/)"],
 };
+
+module.exports = createJestConfig(customJestConfig);

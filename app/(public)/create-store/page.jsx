@@ -29,7 +29,11 @@ export default function CreateStore() {
   });
 
   const onChangeHandler = (e) => {
-    setStoreInfo({ ...storeInfo, [e.target.name]: e.target.value });
+    let value = e.target.value;
+    if (e.target.name === "username") {
+      value = value.replace(/\s/g, "");
+    }
+    setStoreInfo({ ...storeInfo, [e.target.name]: value });
   };
 
   const fetchSellerStatus = async () => {

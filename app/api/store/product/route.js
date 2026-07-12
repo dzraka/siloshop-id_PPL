@@ -37,6 +37,21 @@ export async function POST(request) {
       );
     }
 
+    // Validate prices are positive and price does not exceed mrp
+    if (mrp <= 0 || price <= 0) {
+      return NextResponse.json(
+        { error: "harga harus lebih dari 0" },
+        { status: 400 }
+      );
+    }
+
+    if (price > mrp) {
+      return NextResponse.json(
+        { error: "harga jual tidak boleh melebihi harga asli (MRP)" },
+        { status: 400 }
+      );
+    }
+
     // uploading images to imagekit
     let imageUrl = await Promise.all(
       images.map(async (image) => {

@@ -33,6 +33,13 @@ export async function POST(request) {
       );
     }
 
+    if (username.includes(" ")) {
+      return NextResponse.json(
+        { error: "Username tidak boleh mengandung spasi" },
+        { status: 400 }
+      );
+    }
+
     // Check if the user already has a store
     const store = await prisma.store.findFirst({
       where: { userId: userId },

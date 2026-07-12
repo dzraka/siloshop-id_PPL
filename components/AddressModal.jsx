@@ -23,9 +23,13 @@ const AddressModal = ({ setShowAddressModal }) => {
   });
 
   const handleAddressChange = (e) => {
+    let value = e.target.value;
+    if (e.target.name === "zip") {
+      value = value.replace(/\D/g, "");
+    }
     setAddress({
       ...address,
-      [e.target.name]: e.target.value,
+      [e.target.name]: value,
     });
   };
 
@@ -111,12 +115,16 @@ const AddressModal = ({ setShowAddressModal }) => {
         </div>
         <div className="flex gap-4">
           <input
+            type="text"
+            id="zip"
             name="zip"
+            inputMode="numeric"
+            pattern="[0-9]{5}"
+            maxLength="5"
             onChange={handleAddressChange}
             value={address.zip}
             className="p-2 px-4 outline-none border border-slate-200 rounded w-full"
-            type="number"
-            placeholder="Kode pos"
+            placeholder="Kode pos (5 digit)"
             required
           />
           <input

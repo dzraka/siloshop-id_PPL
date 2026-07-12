@@ -149,11 +149,11 @@ export default function StoreAddProduct() {
           <input
             type="number"
             name="mrp"
+            min="0"
             onChange={onChangeHandler}
             value={productInfo.mrp}
             placeholder="0"
-            rows={5}
-            className="w-full max-w-45 p-2 px-4 outline-none border border-slate-200 rounded resize-none"
+            className="w-full max-w-45 p-2 px-4 outline-none border border-slate-200 rounded"
             required
           />
         </label>
@@ -162,11 +162,11 @@ export default function StoreAddProduct() {
           <input
             type="number"
             name="price"
+            min="0"
             onChange={onChangeHandler}
             value={productInfo.price}
             placeholder="0"
-            rows={5}
-            className="w-full max-w-45 p-2 px-4 outline-none border border-slate-200 rounded resize-none"
+            className="w-full max-w-45 p-2 px-4 outline-none border border-slate-200 rounded"
             required
           />
         </label>
