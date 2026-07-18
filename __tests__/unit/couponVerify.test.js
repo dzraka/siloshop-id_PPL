@@ -9,19 +9,25 @@
 
 // ─── Mock Clerk ───────────────────────────────────────────────────────────────
 jest.mock("@clerk/nextjs/server", () => ({
-  auth: jest.fn().mockResolvedValue({ userId: "user-123" }),
+  getAuth: jest.fn().mockReturnValue({
+    userId: "user-123",
+    has: jest.fn().mockReturnValue(false),
+  }),
 }));
 
 // ─── Mock Prisma (akan di-override per test) ──────────────────────────────────
-const mockCouponFindFirst = jest.fn();
-const mockOrderFindFirst = jest.fn();
+const mockCouponFindUnique = jest.fn();
+const mockOrderFindMany = jest.fn();
 
-jest.mock("@/lib/prismadb", () => ({
-  coupon: {
-    findFirst: mockCouponFindFirst,
-  },
-  order: {
-    findFirst: mockOrderFindFirst,
+jest.mock("@/lib/prisma", () => ({
+  __esModule: true,
+  default: {
+    coupon: {
+      findUnique: mockCouponFindUnique,
+    },
+    order: {
+      findMany: mockOrderFindMany,
+    },
   },
 }));
 
@@ -37,13 +43,18 @@ const { POST } = require("../../app/api/coupon/route");
 describe("UT-13 | Coupon - Menolak Kupon Expired", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    const { getAuth } = require("@clerk/nextjs/server");
+    getAuth.mockReturnValue({
+      userId: "user-123",
+      has: jest.fn().mockReturnValue(false),
+    });
   });
 
   test("harus return 404 jika kupon sudah expired", async () => {
     // Prisma tidak menemukan kupon valid (karena expired sudah difilter di query)
-    mockCouponFindFirst.mockResolvedValue(null);
+    mockCouponFindUnique.mockResolvedValue(null);
 
-    const req = makeRequest({ couponCode: "DISKON50" });
+    const req = makeRequest({ code: "DISKON50" });
     const res = await POST(req);
 
     expect(res.status).toBe(404);
@@ -56,28 +67,67 @@ describe("UT-13 | Coupon - Menolak Kupon Expired", () => {
       discount: 10,
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 hari lagi
       forNewUser: false,
+      forMember: false,
     };
-    mockCouponFindFirst.mockResolvedValue(validCoupon);
-    mockOrderFindFirst.mockResolvedValue(null); // user belum pernah order
+    mockCouponFindUnique.mockResolvedValue(validCoupon);
+    mockOrderFindMany.mockResolvedValue([]);
 
-    const req = makeRequest({ couponCode: "HEMAT10" });
+    const req = makeRequest({ code: "HEMAT10" });
     const res = await POST(req);
 
     expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.coupon).toBeDefined();
+    expect(body.coupon.code).toBe("HEMAT10");
   });
 
-  test("harus memanggil prisma.coupon.findFirst dengan filter expiresAt > now", async () => {
-    mockCouponFindFirst.mockResolvedValue(null);
+  test("harus return 400 jika kupon forMember=true tapi user tidak punya plan plus", async () => {
+    const prisma = require("@/lib/prisma").default;
+    prisma.coupon.findUnique.mockResolvedValue({
+      code: "MEMBER20",
+      forNewUser: false,
+      forMember: true,
+      discount: 20,
+    });
 
-    const req = makeRequest({ couponCode: "DISKON50" });
+    // Simulasi `has` mengembalikan false
+    const { getAuth } = require("@clerk/nextjs/server");
+    getAuth.mockReturnValue({
+      userId: "user-123",
+      has: jest.fn().mockReturnValue(false),
+    });
+
+    const req = makeRequest({ code: "MEMBER20" });
+    const res = await POST(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(body.error).toBe("Kupon valid untuk members only");
+  });
+
+  test("harus return 400 jika terjadi error (catch block)", async () => {
+    const prisma = require("@/lib/prisma").default;
+    // Paksa error saat memanggil Prisma
+    prisma.coupon.findUnique.mockRejectedValue(new Error("Database connection failed"));
+
+    const req = makeRequest({ code: "DISC10" });
+    const res = await POST(req);
+
+    expect(res.status).toBe(400);
+  });
+
+  test("harus memanggil prisma.coupon.findUnique dengan filter code", async () => {
+    mockCouponFindUnique.mockResolvedValue(null);
+
+    const req = makeRequest({ code: "DISKON50" });
     await POST(req);
 
-    expect(mockCouponFindFirst).toHaveBeenCalledWith(
+    expect(mockCouponFindUnique).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
           code: "DISKON50",
         }),
-      })
+      }),
     );
   });
 });
@@ -87,64 +137,66 @@ describe("UT-13 | Coupon - Menolak Kupon Expired", () => {
 describe("UT-14 | Coupon - Menolak forNewUser untuk Buyer Lama", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    const { getAuth } = require("@clerk/nextjs/server");
+    getAuth.mockReturnValue({
+      userId: "user-123",
+      has: jest.fn().mockReturnValue(false),
+    });
   });
 
   test("harus return 400 jika kupon forNewUser=true tapi user sudah pernah order", async () => {
     // Kupon ditemukan tapi untuk new user
-    mockCouponFindFirst.mockResolvedValue({
+    mockCouponFindUnique.mockResolvedValue({
       id: "coupon-new",
       code: "WELCOME20",
       discount: 20,
       forNewUser: true,
+      forMember: false,
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     });
 
     // User sudah pernah order sebelumnya
-    mockOrderFindFirst.mockResolvedValue({
-      id: "order-lama",
-      userId: "user-123",
-    });
+    mockOrderFindMany.mockResolvedValue([{ id: "order-lama", userId: "user-123" }]);
 
-    const req = makeRequest({ couponCode: "WELCOME20" });
+    const req = makeRequest({ code: "WELCOME20" });
     const res = await POST(req);
 
     expect(res.status).toBe(400);
   });
 
   test("harus return 200 jika kupon forNewUser=true dan user BELUM pernah order", async () => {
-    mockCouponFindFirst.mockResolvedValue({
+    mockCouponFindUnique.mockResolvedValue({
       id: "coupon-new",
       code: "WELCOME20",
       discount: 20,
       forNewUser: true,
+      forMember: false,
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     });
 
     // User belum pernah order
-    mockOrderFindFirst.mockResolvedValue(null);
+    mockOrderFindMany.mockResolvedValue([]);
 
-    const req = makeRequest({ couponCode: "WELCOME20" });
+    const req = makeRequest({ code: "WELCOME20" });
     const res = await POST(req);
 
     expect(res.status).toBe(200);
   });
 
   test("harus return 200 jika kupon forNewUser=false meskipun user sudah pernah order", async () => {
-    mockCouponFindFirst.mockResolvedValue({
+    mockCouponFindUnique.mockResolvedValue({
       id: "coupon-all",
       code: "DISKON10",
       discount: 10,
       forNewUser: false,
+      forMember: false,
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     });
 
     // User sudah pernah order, tapi kupon bukan untuk new user saja
-    mockOrderFindFirst.mockResolvedValue({
-      id: "order-lama",
-      userId: "user-123",
-    });
+    mockOrderFindMany.mockResolvedValue([{ id: "order-lama", userId: "user-123" }]);
 
-    const req = makeRequest({ couponCode: "DISKON10" });
+    const req = makeRequest({ code: "DISKON10" });
     const res = await POST(req);
 
     expect(res.status).toBe(200);

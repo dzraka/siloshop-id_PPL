@@ -7,18 +7,26 @@
  */
 
 // ─── Mock Clerk ───────────────────────────────────────────────────────────────
+// Source code menggunakan getAuth(request) yang return { userId } secara synchronous
 jest.mock("@clerk/nextjs/server", () => ({
-  auth: jest.fn().mockResolvedValue({ userId: "user-123" }),
+  getAuth: jest.fn().mockReturnValue({ userId: "user-123" }),
 }));
 
 // ─── Mock Prisma ──────────────────────────────────────────────────────────────
 const mockRatingFindFirst = jest.fn();
 const mockRatingCreate = jest.fn();
+const mockOrderFindUnique = jest.fn();
 
-jest.mock("@/lib/prismadb", () => ({
-  rating: {
-    findFirst: mockRatingFindFirst,
-    create: mockRatingCreate,
+jest.mock("@/lib/prisma", () => ({
+  __esModule: true,
+  default: {
+    rating: {
+      findFirst: mockRatingFindFirst,
+      create: mockRatingCreate,
+    },
+    order: {
+      findUnique: mockOrderFindUnique,
+    },
   },
 }));
 
@@ -34,9 +42,16 @@ const { POST } = require("../../app/api/rating/route");
 describe("UT-15 | Rating - Mencegah Review Duplikat", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    const { getAuth } = require("@clerk/nextjs/server");
+    getAuth.mockReturnValue({ userId: "user-123" });
   });
 
   test("harus return 400 jika user sudah pernah memberi rating untuk produk & order yang sama", async () => {
+    mockOrderFindUnique.mockResolvedValue({
+      id: "order-1",
+      userId: "user-123",
+    });
+
     // Simulasi: rating sudah ada (isAlredyRated = ada data)
     mockRatingFindFirst.mockResolvedValue({
       id: "rating-existing",
@@ -59,6 +74,11 @@ describe("UT-15 | Rating - Mencegah Review Duplikat", () => {
   });
 
   test("harus TIDAK memanggil prisma.rating.create jika sudah pernah rating", async () => {
+    mockOrderFindUnique.mockResolvedValue({
+      id: "order-1",
+      userId: "user-123",
+    });
+
     mockRatingFindFirst.mockResolvedValue({
       id: "rating-existing",
       userId: "user-123",
@@ -78,6 +98,11 @@ describe("UT-15 | Rating - Mencegah Review Duplikat", () => {
   });
 
   test("harus return 200 dan simpan rating jika user BELUM pernah rating produk & order ini", async () => {
+    mockOrderFindUnique.mockResolvedValue({
+      id: "order-1",
+      userId: "user-123",
+    });
+
     // Tidak ada rating sebelumnya
     mockRatingFindFirst.mockResolvedValue(null);
 
@@ -102,7 +127,12 @@ describe("UT-15 | Rating - Mencegah Review Duplikat", () => {
     expect(mockRatingCreate).toHaveBeenCalledTimes(1);
   });
 
-  test("harus memanggil prisma.rating.findFirst dengan userId, productId, dan orderId", async () => {
+  test("harus memanggil prisma.rating.findFirst dengan productId dan orderId", async () => {
+    mockOrderFindUnique.mockResolvedValue({
+      id: "order-1",
+      userId: "user-123",
+    });
+
     mockRatingFindFirst.mockResolvedValue(null);
     mockRatingCreate.mockResolvedValue({ id: "rating-new" });
 
@@ -117,15 +147,19 @@ describe("UT-15 | Rating - Mencegah Review Duplikat", () => {
     expect(mockRatingFindFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          userId: "user-123",
           productId: "prod-1",
           orderId: "order-1",
         }),
-      })
+      }),
     );
   });
 
   test("rating yang tersimpan harus mengandung userId, productId, dan orderId", async () => {
+    mockOrderFindUnique.mockResolvedValue({
+      id: "order-2",
+      userId: "user-123",
+    });
+
     mockRatingFindFirst.mockResolvedValue(null);
     mockRatingCreate.mockResolvedValue({
       id: "rating-new",
@@ -150,7 +184,7 @@ describe("UT-15 | Rating - Mencegah Review Duplikat", () => {
           productId: "prod-2",
           orderId: "order-2",
         }),
-      })
+      }),
     );
   });
 });
